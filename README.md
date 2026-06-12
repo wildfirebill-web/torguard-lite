@@ -29,9 +29,15 @@ Welcome to TorGuard Lite! This lightweight, minimal Windows Graphical User Inter
 
 ### Installation
 
+**Option A — Pre-built exe (recommended):**
+
+Run `dist\TorGuardLite.exe` directly. No Python required.
+
+**Option B — From source:**
+
 1. Clone the repository:
    ```
-   git clone https://github.com/username/torguard-lite.git
+   git clone https://github.com/wildfirebill-web/torguard-lite.git
    ```
 2. Navigate to the cloned directory:
    ```
@@ -43,8 +49,15 @@ Welcome to TorGuard Lite! This lightweight, minimal Windows Graphical User Inter
    ```
 4. Run TorGuard Lite:
    ```
-   python app.py
+   python torguard-lite.py
    ```
+
+**Building the exe yourself:**
+
+```
+pip install pyinstaller
+pyinstaller --onefile --noconsole --name "TorGuardLite" torguard-lite.py
+```
 
 ### Usage
 
