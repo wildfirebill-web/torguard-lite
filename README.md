@@ -19,7 +19,7 @@ Welcome to TorGuard Lite! This lightweight, minimal Windows Graphical User Inter
 
 ### Installation
 
-1. Download the latest release from the [releases page][https://github.com/username/torguard-lite/releases](https://github.com/wildfirebill-web/torguard-lite/releases)
+1. Download the latest release from the [releases page][https://github.com/wildfirebill-web/torguard-lite/releases](https://github.com/wildfirebill-web/torguard-lite/releases)
 2. Run the installer and follow the prompts to complete installation
 
 ### Usage
