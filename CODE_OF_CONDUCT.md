@@ -1,1 +1,0 @@
-Code of Conduct for torguard-lite
