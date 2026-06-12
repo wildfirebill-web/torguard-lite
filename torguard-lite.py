@@ -6,6 +6,12 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 SYSTEM = platform.system()
+
+# Fix broken PATH — no System32/Windows/PS dirs found in the env
+if SYSTEM == "Windows":
+    system32 = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32")
+    ps_dir = os.path.join(system32, "WindowsPowerShell", "v1.0")
+    os.environ["PATH"] = ps_dir + ";" + system32 + ";" + os.environ.get("PATH", "")
 CONFIG_DIR = Path(os.getenv("LOCALAPPDATA", Path.home() / ".local/share")) / "TorGuardLite"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
