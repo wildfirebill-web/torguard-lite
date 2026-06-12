@@ -1,1 +1,1 @@
-CreateObject("WScript.Shell").Run "pythonw ""G:\zed\torguard\torguard-lite.py""", 0, False
+CreateObject("WScript.Shell").Run """C:\Python314\pythonw.exe"" ""G:\zed\torguard\torguard-lite.py""", 0, False
