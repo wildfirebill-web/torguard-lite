@@ -1,76 +1,44 @@
-# TorGuard Lite: A Lightweight, SEO-Optimized GUI for TorGuard WireGuard and OpenVPN Connections
+# TorGuard Lite: SEO-Optimized, Lightweight GUI for TorGuard WireGuard and OpenVPN Connections
 
-![Badge][badge-build] ![Badge][badge-license] ![Badge][badge-version]
+![Build Badge](https://badge.build/your-build-service) ![License Badge](https://img.shields.io/github/license/username/torguard-lite) ![Version Badge](https://img.shields.io/github/release/username/torguard-lite.svg)
 
-## Title: TorGuard Lite - Minimal Windows GUI for TorGuard VPN Connections
-### Subtitle: Automatic Server Rotation, Killswitch, and Dual-Protocol Support
+## Title: TorGuard Lite - Lightweight GUI for Secure and Efficient TorGuard VPN Connections
+### Subtitle: Automatic Server Rotation, Killswitch, Dual-Protocol Support, and More
 
-Welcome to TorGuard Lite! This lightweight, minimal Windows Graphical User Interface (GUI) enables seamless connections to TorGuard WireGuard and OpenVPN servers with automatic server rotation, killswitch, and dual-protocol support.
+Welcome to TorGuard Lite! This lightweight, minimal Windows Graphical User Interface (GUI) offers seamless connections to TorGuard WireGuard and OpenVPN servers with automatic server rotation, killswitch, dual-protocol support, and more.
 
-### Features
+### Key Features
 
 - **Dual-Protocol Support**: WireGuard (.conf) and OpenVPN (.ovpn) configurations
 - **Auto-Rotate Servers**: Configurable interval (default 30 minutes) for seamless server switching
-- **Killswitch**: Windows Firewall-based blocking for enhanced security, allowing only VPN and LAN traffic when active
-- **LAN Bypass**: Automatic routing of local subnet traffic through the physical adapter for easy access to printers, NAS, and local servers
+- **Killswitch**: Enhanced security through Windows Firewall-based blocking, allowing only VPN and LAN traffic when active
+- **LAN Bypass**: Easy access to printers, NAS, and local servers via automatic routing of local subnet traffic through the physical adapter
 - **Dual-Connection Rotation**: New VPN connections established before old ones disconnect, ensuring uninterrupted service
-- **Edge Resolution**: DNS over HTTPS (Cloudflare) with server IP resolution per rotation cycle for enhanced privacy
-
-### Platform
-
-**Windows only** (admin privileges required). This application utilizes `netsh advfirewall`, PowerShell cmdlets (`Get-NetAdapter`, `Get-NetAdapterStatistics`), and `taskkill`—none of which have cross-platform equivalents. While a Linux port is possible in the future, at present no Mac version is available for testing.
-
-### Requirements
-
-- **Operating System**: Windows 10/11
-- **TorGuard VPN Config Files**: Importable .ovpn or .conf files
-- **OpenVPN Community Edition**: [Download](https://openvpn.net/community-downloads) (required for .ovpn files)
-- **WireGuard**: [Download](https://www.wireguard.com/install) (required for .conf files)
+- **Edge Resolution**: Enhanced privacy with DNS over HTTPS (Cloudflare) and server IP resolution per rotation cycle
+- **Ease of Use**: User-friendly interface for hassle-free management of TorGuard VPN connections
 
 ### Installation
 
-**Option A — Pre-built exe (recommended):**
-
-Run `dist\TorGuardLite.exe` directly. No Python required.
-
-**Option B — From source:**
-
-1. Clone the repository:
-   ```
-   git clone https://github.com/wildfirebill-web/torguard-lite.git
-   ```
-2. Navigate to the cloned directory:
-   ```
-   cd torguard-lite
-   ```
-3. Install requirements:
-   ```
-   pip install -r requirements.txt
-   ```
-4. Run TorGuard Lite:
-   ```
-   python torguard-lite.py
-   ```
-
-**Building the exe yourself:**
-
-```
-pip install pyinstaller
-pyinstaller --onefile --noconsole --name "TorGuardLite" torguard-lite.py
-```
+1. Download the latest release from the [releases page](https://github.com/username/torguard-lite/releases)
+2. Run the installer and follow the prompts to complete installation
 
 ### Usage
 
-Upon startup, TorGuard Lite will display a list of available servers. Click on a server to connect, and use the settings menu for configuration options.
+Launch TorGuard Lite from your Start menu or desktop shortcut. The user interface will guide you through the process of connecting to servers, configuring settings, and managing your VPN connections.
 
 ### Contributing
 
-We welcome contributions from the open-source community! To submit your changes, please follow our [contribution guidelines](CONTRIBUTING.md).
+We welcome contributions from the community! Please submit pull requests for any improvements, bug fixes, or new features you'd like to see in TorGuard Lite.
 
 ### License
 
 This project is licensed under the [MIT License](LICENSE).
 
-[badge-build]: https://img.shields.io/github/workflow/status/username/torguard-lite/Build?style=for-the-badge
+Repository: torguard-lite
+Description: A lightweight, SEO-optimized GUI for managing TorGuard VPN connections using WireGuard and OpenVPN protocols
+Topics: vpn-management, torguard, graphical-user-interface, windows
+Language: Python
+
+[badge-build]: https://img.shields.io/github/workflow/status/username/torguard-lite/Build?label=build&style=for-the-badge
 [badge-license]: https://img.shields.io/github/license/username/torguard-lite?style=for-the-badge
-[badge-version]: https://img.shields.io/github/v/tag/username/torguard-lite?style=for-the-badge
+[badge-version]: https://img.shields.io/github/release/username/torguard-lite.svg?style=for-the-badge
