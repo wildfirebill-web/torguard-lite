@@ -1,6 +1,6 @@
 # TorGuard Lite
 
-A lightweight Windows GUI for TorGuard WireGuard and OpenVPN connections with automatic server rotation and killswitch.
+A minimal Windows GUI for TorGuard WireGuard and OpenVPN connections with automatic server rotation and killswitch. Uses ~10–20 MB RAM and negligible CPU compared to the official TorGuard app (Electron-based, ~200–400 MB).
 
 ## Features
 
