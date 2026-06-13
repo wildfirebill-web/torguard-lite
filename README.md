@@ -1,9 +1,9 @@
-```markdown
+
 # TorGuard Lite: Lightweight, SEO-Optimized GUI for Secure and Efficient TorGuard VPN Connections
 
 ![Build Badge](https://badge.build/your-build-service)
-![License Badge](https://img.shields.io/github/license/username/torguard-lite)
-![Version Badge](https://img.shields.io/github/release/username/torguard-lite.svg)
+![License Badge](https://img.shields.io/github/license/wildfirebill-web/torguard-lite)
+![Version Badge](https://img.shields.io/github/release/wildfirebill-web/torguard-lite.svg)
 
 ## Title: TorGuard Lite - A Lightweight and SEO-Friendly GUI for Secure TorGuard VPN Connections
 ### Subtitle: Automatic Server Rotation, Killswitch, Dual-Protocol Support, and More
@@ -22,7 +22,7 @@ Welcome to TorGuard Lite! This lightweight, minimal Windows Graphical User Inter
 
 ### Installation
 
-1. Download the latest release from the [releases page](https://github.com/username/torguard-lite/releases)
+1. Download the latest release from the [releases page](https://github.com/wildfirebill-web/torguard-lite/releases)
 2. Run the installer and follow the prompts to complete installation
 3. Launch TorGuard Lite from your Start menu
 
@@ -44,4 +44,3 @@ Repository: torguard-lite
 Description: Python CLI tool for managing Torguard VPN connections
 Topics: VPN, TorGuard, WireGuard, OpenVPN, GUI, Windows
 Language: Python
-```
