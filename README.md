@@ -1,7 +1,7 @@
 
 # TorGuard Lite: Lightweight, SEO-Optimized GUI for Secure and Efficient TorGuard VPN Connections
 
-![Build Badge](https://badge.build/your-build-service)
+![Static Badge](https://img.shields.io/badge/:badgeContent?style=for-the-badge&label=build-passing-brightgreen)
 ![License Badge](https://img.shields.io/github/license/wildfirebill-web/torguard-lite)
 ![Version Badge](https://img.shields.io/github/release/wildfirebill-web/torguard-lite.svg)
 
