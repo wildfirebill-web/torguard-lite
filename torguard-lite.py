@@ -4,6 +4,9 @@ from pathlib import Path
 from datetime import datetime
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
+import pystray
+from PIL import Image, ImageDraw
+from io import BytesIO
 
 SYSTEM = platform.system()
 
@@ -339,11 +342,15 @@ class WireGuardConnection:
         except:
             pass
 
+    def _disable_service(self, name):
+        run(["sc", "config", name, "start=disabled"], timeout=10)
+
     def disconnect(self, keep_adapter=False):
         if not self.wg_dir:
             return False
         wg_exe = Path(self.wg_dir) / "wireguard.exe"
         svc = f"WireGuardTunnel${self.name}"
+        self._disable_service(svc)
         run(["net", "stop", svc], timeout=10)
         if not keep_adapter:
             run([str(wg_exe), "/uninstalltunnelservice", self.name], timeout=10)
@@ -507,6 +514,10 @@ class TorGuardLite(ctk.CTk):
         self.minsize(700, 500)
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.bind("<Unmap>", self._on_minimize)
+
+        self.tray_icon = None
+        self._tray_ready = threading.Event()
 
         self.settings = self._load_settings()
         self.killswitch = KillSwitch()
@@ -524,6 +535,7 @@ class TorGuardLite(ctk.CTk):
         self.bw_total_tx = 0
 
         self._build_ui()
+        self._build_tray()
         self._check_binaries()
         self._update_state()
         # Sync auto-start with shortcut state
@@ -868,10 +880,43 @@ class TorGuardLite(ctk.CTk):
         self.log_text.delete("1.0", "end")
 
     def _read_bw_bytes(self):
-        if not self.vpn or not self.vpn.adapter:
+        adapter_name = self.vpn.adapter if self.vpn else None
+        if not adapter_name:
             return None, None
+        rx, tx = self._query_adapter_stats(adapter_name)
+        if rx is not None:
+            return rx, tx
+        if self.vpn:
+            self.vpn._detect_adapter()
+        adapter_name = self.vpn.adapter if self.vpn else None
+        if adapter_name:
+            return self._query_adapter_stats(adapter_name)
+        return None, None
+
+    def _query_adapter_stats(self, name):
         try:
-            script = f"$s=Get-NetAdapterStatistics -Name '{self.vpn.adapter}' -ErrorAction SilentlyContinue; Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\""
+            safe_name = name.replace("'", "''")
+            script = f"$s=Get-NetAdapterStatistics -Name '{safe_name}' -ErrorAction SilentlyContinue; Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\""
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                               capture_output=True, text=True, timeout=5,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            parts = r.stdout.strip().split()
+            if len(parts) >= 2:
+                return int(parts[0]), int(parts[1])
+        except:
+            pass
+        try:
+            safe_name2 = name.replace("'", "''")
+            script = (
+                "$a=Get-NetAdapter | Where-Object { "
+                "$_.Name -eq '" + safe_name2 + "' -or "
+                "$_.Name -like 'WireGuard*' -or "
+                "$_.Name -like '*TAP*' -or "
+                "$_.Name -like '*OpenVPN*' -or "
+                "$_.Name -like 'ovpn-dco*' } | Select-Object -First 1; "
+                "if ($a) { $s=Get-NetAdapterStatistics -Name $a.Name -ErrorAction SilentlyContinue; "
+                "Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\" }"
+            )
             r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
                                capture_output=True, text=True, timeout=5,
                                creationflags=subprocess.CREATE_NO_WINDOW)
@@ -1339,10 +1384,54 @@ class TorGuardLite(ctk.CTk):
                         "name=OpenVPN Data Channel Offload", "admin=enabled"],
                        capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
-    def on_close(self):
+    def _make_tray_image(self):
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse([4, 4, 60, 60], fill="#22c55e")
+        draw.text((18, 14), "TG", fill="white",
+                  font=None, anchor=None)
+        return img
+
+    def _build_tray(self):
+        if self.tray_icon:
+            return
+        menu = pystray.Menu(
+            pystray.MenuItem("Show", self._show_window, default=True),
+            pystray.MenuItem("Quit", self._quit_app),
+        )
+        self.tray_icon = pystray.Icon(
+            "torguard_lite", self._make_tray_image(),
+            "TorGuard Lite", menu
+        )
+        t = threading.Thread(target=self.tray_icon.run, daemon=True)
+        t.start()
+        self._tray_ready.set()
+
+    def _on_minimize(self, event=None):
+        if event and hasattr(event, "widget") and event.widget:
+            return
+        self._hide_to_tray()
+
+    def _hide_to_tray(self):
+        self.withdraw()
+        if not self.tray_icon:
+            self._build_tray()
+
+    def _show_window(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _quit_app(self):
+        if self.tray_icon:
+            self.tray_icon.stop()
+            self.tray_icon = None
         if self.connected:
             self._disconnect()
         self.destroy()
+
+    def on_close(self):
+        self._hide_to_tray()
 
 
 if __name__ == "__main__":
@@ -1367,5 +1456,25 @@ if __name__ == "__main__":
                                 "name=TorGuardLite_Temp_"], capture_output=True, shell=True)
         except:
             pass
+        try:
+            out = subprocess.run(["powershell", "-Command",
+                "Get-Service 'WireGuardTunnel*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name"],
+                capture_output=True, text=True, shell=True)
+            if out.returncode == 0:
+                for svc in out.stdout.strip().splitlines():
+                    svc = svc.strip()
+                    if svc:
+                        print(f"Cleaning up orphaned tunnel: {svc}")
+                        subprocess.run(["sc", "config", svc, "start=disabled"], capture_output=True, shell=True)
+                        subprocess.run(["net", "stop", svc], capture_output=True, shell=True)
+                        tunnel_name = svc.split("$", 1)[-1] if "$" in svc else ""
+                        if tunnel_name:
+                            wg_dir = find_wireguard()
+                            if wg_dir:
+                                subprocess.run([str(Path(wg_dir) / "wireguard.exe"),
+                                                "/uninstalltunnelservice", tunnel_name],
+                                               capture_output=True, shell=True)
+        except Exception as e:
+            print(f"WireGuard tunnel cleanup error: {e}")
     app = TorGuardLite()
     app.mainloop()
