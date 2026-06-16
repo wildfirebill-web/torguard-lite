@@ -332,7 +332,12 @@ class WireGuardConnection:
 
     def _detect_adapter(self):
         try:
-            script = "Get-NetAdapter | Where-Object { $_.Name -like 'WireGuard*' } | Select-Object -First 1 -ExpandProperty Name"
+            script = (
+                "Get-NetAdapter | Where-Object { "
+                "$_.InterfaceDescription -like '*WireGuard*' -or "
+                "$_.Name -like 'WireGuard*' } | "
+                "Select-Object -First 1 -ExpandProperty Name"
+            )
             r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
                                capture_output=True, text=True, timeout=15,
                                creationflags=subprocess.CREATE_NO_WINDOW)
@@ -369,7 +374,7 @@ class WireGuardConnection:
         except:
             try:
                 r = run(["powershell", "-Command",
-                         "Get-NetAdapter | Where-Object {$_.Name -like 'WireGuard*' -and $_.Status -eq 'Up'} | Measure-Object | Select-Object -ExpandProperty Count"],
+                         "Get-NetAdapter | Where-Object {($_.InterfaceDescription -like '*WireGuard*' -or $_.Name -like 'WireGuard*') -and $_.Status -eq 'Up'} | Measure-Object | Select-Object -ExpandProperty Count"],
                         shell=True)
                 return r.stdout.strip() != "0"
             except:
@@ -471,7 +476,15 @@ class OpenVPNConnection:
 
     def _detect_adapter(self):
         try:
-            script = "Get-NetAdapter | Where-Object { $_.Name -like '*TAP*' -or $_.Name -like '*OpenVPN*' -or $_.Name -like 'ovpn-dco*' } | Select-Object -First 1 -ExpandProperty Name"
+            script = (
+                "Get-NetAdapter | Where-Object { "
+                "$_.InterfaceDescription -like '*OpenVPN*' -or "
+                "$_.InterfaceDescription -like '*TAP*' -or "
+                "$_.Name -like '*TAP*' -or "
+                "$_.Name -like '*OpenVPN*' -or "
+                "$_.Name -like 'ovpn-dco*' } | "
+                "Select-Object -First 1 -ExpandProperty Name"
+            )
             r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
                                capture_output=True, text=True, timeout=15,
                                creationflags=subprocess.CREATE_NO_WINDOW)
@@ -882,50 +895,82 @@ class TorGuardLite(ctk.CTk):
     def _read_bw_bytes(self):
         adapter_name = self.vpn.adapter if self.vpn else None
         if not adapter_name:
+            log("BW: no adapter name available")
             return None, None
         rx, tx = self._query_adapter_stats(adapter_name)
         if rx is not None:
             return rx, tx
+        log(f"BW: stats failed for '{adapter_name}', re-detecting adapter")
         if self.vpn:
             self.vpn._detect_adapter()
         adapter_name = self.vpn.adapter if self.vpn else None
         if adapter_name:
-            return self._query_adapter_stats(adapter_name)
+            rx, tx = self._query_adapter_stats(adapter_name)
+            if rx is not None:
+                return rx, tx
+            log(f"BW: stats still failed after re-detect (adapter='{adapter_name}')")
+        else:
+            log("BW: adapter re-detect returned nothing")
         return None, None
 
     def _query_adapter_stats(self, name):
-        try:
-            safe_name = name.replace("'", "''")
-            script = f"$s=Get-NetAdapterStatistics -Name '{safe_name}' -ErrorAction SilentlyContinue; Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\""
-            r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                               capture_output=True, text=True, timeout=5,
-                               creationflags=subprocess.CREATE_NO_WINDOW)
-            parts = r.stdout.strip().split()
-            if len(parts) >= 2:
-                return int(parts[0]), int(parts[1])
-        except:
-            pass
-        try:
-            safe_name2 = name.replace("'", "''")
-            script = (
-                "$a=Get-NetAdapter | Where-Object { "
-                "$_.Name -eq '" + safe_name2 + "' -or "
-                "$_.Name -like 'WireGuard*' -or "
-                "$_.Name -like '*TAP*' -or "
-                "$_.Name -like '*OpenVPN*' -or "
-                "$_.Name -like 'ovpn-dco*' } | Select-Object -First 1; "
-                "if ($a) { $s=Get-NetAdapterStatistics -Name $a.Name -ErrorAction SilentlyContinue; "
-                "Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\" }"
-            )
-            r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                               capture_output=True, text=True, timeout=5,
-                               creationflags=subprocess.CREATE_NO_WINDOW)
-            parts = r.stdout.strip().split()
-            if len(parts) >= 2:
-                return int(parts[0]), int(parts[1])
-        except:
-            pass
-        return None, None
+        def _parse_ps_stats(script):
+            try:
+                r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                                   capture_output=True, text=True, timeout=5,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                parts = r.stdout.strip().split()
+                if len(parts) >= 2:
+                    return int(parts[0]), int(parts[1])
+            except:
+                pass
+            return None, None
+
+        safe = name.replace("'", "''")
+
+        # 1. Exact name via Get-NetAdapterStatistics
+        script = (
+            "$s=Get-NetAdapterStatistics -Name '" + safe + "' -ErrorAction SilentlyContinue; "
+            "if ($s) { Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\" }"
+        )
+        rx, tx = _parse_ps_stats(script)
+        if rx is not None:
+            return rx, tx
+
+        # 2. Broader scan: Name or InterfaceDescription
+        script = (
+            "$a=Get-NetAdapter | Where-Object { "
+            "$_.Name -eq '" + safe + "' -or "
+            "$_.InterfaceDescription -like '*WireGuard*' -or "
+            "$_.InterfaceDescription -like '*OpenVPN*' -or "
+            "$_.InterfaceDescription -like '*TAP*' -or "
+            "$_.Name -like 'WireGuard*' -or "
+            "$_.Name -like '*TAP*' -or "
+            "$_.Name -like '*OpenVPN*' -or "
+            "$_.Name -like 'ovpn-dco*' } | Select-Object -First 1; "
+            "if ($a) { "
+            "$s=Get-NetAdapterStatistics -Name $a.Name -ErrorAction SilentlyContinue; "
+            "if ($s) { Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\" } }"
+        )
+        rx, tx = _parse_ps_stats(script)
+        if rx is not None:
+            return rx, tx
+
+        # 3. WMI fallback (most reliable, no module dependency)
+        script = (
+            "$iface=Get-WmiObject -Class Win32_PerfRawData_Tcpip_NetworkInterface "
+            "| Where-Object { "
+            "$_.Name -eq '" + safe + "' -or "
+            "$_.Name -like '*WireGuard*' -or "
+            "$_.Name -like '*OpenVPN*' -or "
+            "$_.Name -like '*TAP*' -or "
+            "$_.Name -like '*ovpn-dco*' } "
+            "| Select-Object -First 1; "
+            "if ($iface) { "
+            "Write-Output \"$($iface.BytesReceivedPersec) $($iface.BytesSentPersec)\" }"
+        )
+        rx, tx = _parse_ps_stats(script)
+        return rx, tx
 
     def _format_bw(self, value):
         unit = self.bw_unit_var.get()
@@ -1408,7 +1453,7 @@ class TorGuardLite(ctk.CTk):
         self._tray_ready.set()
 
     def _on_minimize(self, event=None):
-        if event and hasattr(event, "widget") and event.widget:
+        if event and getattr(event, "widget", None) is not self:
             return
         self._hide_to_tray()
 
