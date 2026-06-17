@@ -896,49 +896,46 @@ class TorGuardLite(ctk.CTk):
         adapter_name = self.vpn.adapter if self.vpn else None
         if not adapter_name:
             log("BW: no adapter name available")
-            return None, None
-        rx, tx = self._query_adapter_stats(adapter_name)
-        if rx is not None:
-            return rx, tx
+            return None, None, False
+        result = self._query_adapter_stats(adapter_name)
+        if result is not None:
+            return result
         log(f"BW: stats failed for '{adapter_name}', re-detecting adapter")
         if self.vpn:
             self.vpn._detect_adapter()
         adapter_name = self.vpn.adapter if self.vpn else None
         if adapter_name:
-            rx, tx = self._query_adapter_stats(adapter_name)
-            if rx is not None:
-                return rx, tx
+            result = self._query_adapter_stats(adapter_name)
+            if result is not None:
+                return result
             log(f"BW: stats still failed after re-detect (adapter='{adapter_name}')")
         else:
             log("BW: adapter re-detect returned nothing")
-        return None, None
+        return None, None, False
 
     def _query_adapter_stats(self, name):
-        def _parse_ps_stats(script):
+        safe = name.replace("'", "''")
+
+        def _ps(script):
             try:
                 r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
                                    capture_output=True, text=True, timeout=5,
                                    creationflags=subprocess.CREATE_NO_WINDOW)
-                parts = r.stdout.strip().split()
-                if len(parts) >= 2:
-                    return int(parts[0]), int(parts[1])
+                return r.stdout.strip()
             except:
-                pass
-            return None, None
+                return ""
 
-        safe = name.replace("'", "''")
-
-        # 1. Exact name via Get-NetAdapterStatistics
-        script = (
+        # 1. Get-NetAdapterStatistics with exact name
+        out = _ps(
             "$s=Get-NetAdapterStatistics -Name '" + safe + "' -ErrorAction SilentlyContinue; "
-            "if ($s) { Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\" }"
+            "if ($s) { Write-Output \"C $($s.ReceivedBytes) $($s.SendBytes)\" }"
         )
-        rx, tx = _parse_ps_stats(script)
-        if rx is not None:
-            return rx, tx
+        parts = out.split()
+        if len(parts) >= 3 and parts[0] == "C":
+            return int(parts[1]), int(parts[2]), False
 
-        # 2. Broader scan: Name or InterfaceDescription
-        script = (
+        # 2. Get-NetAdapterStatistics by wildcard scan (name or desc)
+        out = _ps(
             "$a=Get-NetAdapter | Where-Object { "
             "$_.Name -eq '" + safe + "' -or "
             "$_.InterfaceDescription -like '*WireGuard*' -or "
@@ -950,14 +947,14 @@ class TorGuardLite(ctk.CTk):
             "$_.Name -like 'ovpn-dco*' } | Select-Object -First 1; "
             "if ($a) { "
             "$s=Get-NetAdapterStatistics -Name $a.Name -ErrorAction SilentlyContinue; "
-            "if ($s) { Write-Output \"$($s.ReceivedBytes) $($s.SendBytes)\" } }"
+            "if ($s) { Write-Output \"C $($s.ReceivedBytes) $($s.SendBytes)\" } }"
         )
-        rx, tx = _parse_ps_stats(script)
-        if rx is not None:
-            return rx, tx
+        parts = out.split()
+        if len(parts) >= 3 and parts[0] == "C":
+            return int(parts[1]), int(parts[2]), False
 
-        # 3. WMI fallback (most reliable, no module dependency)
-        script = (
+        # 3. WMI Win32_PerfRawData_Tcpip_NetworkInterface (cumulative)
+        out = _ps(
             "$iface=Get-WmiObject -Class Win32_PerfRawData_Tcpip_NetworkInterface "
             "| Where-Object { "
             "$_.Name -eq '" + safe + "' -or "
@@ -967,10 +964,36 @@ class TorGuardLite(ctk.CTk):
             "$_.Name -like '*ovpn-dco*' } "
             "| Select-Object -First 1; "
             "if ($iface) { "
-            "Write-Output \"$($iface.BytesReceivedPersec) $($iface.BytesSentPersec)\" }"
+            "Write-Output \"C $($iface.BytesReceivedPersec) $($iface.BytesSentPersec)\" }"
         )
-        rx, tx = _parse_ps_stats(script)
-        return rx, tx
+        parts = out.split()
+        if len(parts) >= 3 and parts[0] == "C":
+            return int(parts[1]), int(parts[2]), False
+
+        # 4. WMI Win32_PerfFormattedData_Tcpip_NetworkInterface (per-second)
+        out = _ps(
+            "$iface=Get-WmiObject -Class Win32_PerfFormattedData_Tcpip_NetworkInterface "
+            "| Where-Object { "
+            "$_.Name -eq '" + safe + "' -or "
+            "$_.Name -like '*WireGuard*' -or "
+            "$_.Name -like '*OpenVPN*' -or "
+            "$_.Name -like '*TAP*' -or "
+            "$_.Name -like '*ovpn-dco*' } "
+            "| Select-Object -First 1; "
+            "if ($iface) { "
+            "Write-Output \"R $($iface.BytesReceivedPersec) $($iface.BytesSentPersec)\" }"
+        )
+        parts = out.split()
+        if len(parts) >= 3 and parts[0] == "R":
+            return float(parts[1]), float(parts[2]), True
+
+        # 5. Debug: dump all WMI interface names
+        out = _ps(
+            "$all=Get-WmiObject -Class Win32_PerfFormattedData_Tcpip_NetworkInterface; "
+            "if ($all) { $all | ForEach-Object { Write-Output $_.Name } }"
+        )
+        log(f"BW: available WMI interfaces: {out.replace(chr(10), ', ')}")
+        return None
 
     def _format_bw(self, value):
         unit = self.bw_unit_var.get()
@@ -992,26 +1015,41 @@ class TorGuardLite(ctk.CTk):
         return f"{value:.0f}"
 
     def _poll_bandwidth(self):
-        rx, tx = self._read_bw_bytes()
-        if rx is not None and tx is not None and self.bw_prev_bytes is not None:
-            prev_rx, prev_tx = self.bw_prev_bytes
-            now = time.time()
-            dt = now - self.bw_prev_time
-            if dt > 0:
-                dl = max(0, (rx - prev_rx) / dt)
-                ul = max(0, (tx - prev_tx) / dt)
-                self.bw_total_rx += rx - prev_rx
-                self.bw_total_tx += tx - prev_tx
+        result = self._read_bw_bytes()
+        now = time.time()
+        if result is not None and result[0] is not None:
+            rx, tx, is_rate = result
+            if is_rate:
+                dl = max(0, rx)
+                ul = max(0, tx)
+                if self.bw_prev_time:
+                    dt = now - self.bw_prev_time
+                    self.bw_total_rx += dl * dt
+                    self.bw_total_tx += ul * dt
                 dl_str = self._format_bw(dl)
                 ul_str = self._format_bw(ul)
                 unit = self.bw_unit_var.get()
                 self.bw_down_label.configure(text=f"\u2193 {dl_str} {unit}/s")
                 self.bw_up_label.configure(text=f"\u2191 {ul_str} {unit}/s")
-            elif rx != prev_rx or tx != prev_tx:
-                self.bw_down_label.configure(text="\u2193 ...")
-                self.bw_up_label.configure(text="\u2191 ...")
-        self.bw_prev_bytes = (rx, tx) if rx is not None and tx is not None else self.bw_prev_bytes
-        self.bw_prev_time = time.time()
+            elif self.bw_prev_bytes is not None:
+                prev_rx, prev_tx = self.bw_prev_bytes
+                dt = now - self.bw_prev_time
+                if dt > 0:
+                    dl = max(0, (rx - prev_rx) / dt)
+                    ul = max(0, (tx - prev_tx) / dt)
+                    self.bw_total_rx += rx - prev_rx
+                    self.bw_total_tx += tx - prev_tx
+                    dl_str = self._format_bw(dl)
+                    ul_str = self._format_bw(ul)
+                    unit = self.bw_unit_var.get()
+                    self.bw_down_label.configure(text=f"\u2193 {dl_str} {unit}/s")
+                    self.bw_up_label.configure(text=f"\u2191 {ul_str} {unit}/s")
+                elif rx != prev_rx or tx != prev_tx:
+                    self.bw_down_label.configure(text="\u2193 ...")
+                    self.bw_up_label.configure(text="\u2191 ...")
+            if not is_rate:
+                self.bw_prev_bytes = (rx, tx)
+        self.bw_prev_time = now
         self.bw_timer = self.after(1000, self._poll_bandwidth)
 
     def _start_bandwidth_monitor(self):
