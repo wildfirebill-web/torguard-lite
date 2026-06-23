@@ -1,6 +1,6 @@
-# Torguard-Lite Contributing Guide
+# Contributing Guide
 
-Thank you for your interest in contributing to Torguard-Lite! This project is a Python CLI tool for managing TorGuard VPN, and we're excited that you want to join our community. To make the contribution process as smooth as possible, please follow the guidelines outlined below.
+Thank you for your interest in contributing to TorGuard Lite! This project is a Python GUI for managing TorGuard VPN connections, and we're excited that you want to help. Please follow the guidelines below.
 
 ## Reporting Bugs
 
