@@ -37,7 +37,7 @@ TorGuard Lite is a **minimal, open-source Windows GUI** for connecting to **TorG
 ### Download (recommended)
 
 1. Go to the [Releases page](https://github.com/wildfirebill-web/torguard-lite/releases)
-2. Download `TorGuardLite_v0.3.0-beta.exe`
+2. Download `TorGuardLite_v0.3.1-beta.exe`
 3. **Run as Administrator** (required for firewall rules and VPN adapters)
 
 ### Build from source

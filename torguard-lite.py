@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, json, time, threading, subprocess, platform, socket, re, shutil, signal, ctypes, random
+import os, sys, json, time, threading, subprocess, platform, socket, re, shutil, signal, ctypes, random, tempfile
 from pathlib import Path
 from datetime import datetime
 from tkinter import filedialog, messagebox
@@ -7,6 +7,7 @@ import customtkinter as ctk
 import pystray
 from PIL import Image, ImageDraw
 from io import BytesIO
+from ctypes import wintypes
 
 SYSTEM = platform.system()
 
@@ -42,6 +43,56 @@ def run(cmd, **kw):
     kw.setdefault("text", True)
     kw.setdefault("timeout", 15)
     return subprocess.run(cmd, **kw, creationflags=subprocess.CREATE_NO_WINDOW if SYSTEM == "Windows" else 0)
+
+class DATA_BLOB(ctypes.Structure):
+    _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
+
+_crypt32 = ctypes.windll.crypt32
+_CRYPTPROTECT_UI_FORBIDDEN = 0x01
+
+def dpapi_encrypt(data):
+    blob_in = DATA_BLOB(len(data), ctypes.cast(data, ctypes.POINTER(ctypes.c_byte)))
+    blob_out = DATA_BLOB()
+    if _crypt32.CryptProtectData(ctypes.byref(blob_in), None, None, None, None, _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(blob_out)):
+        result = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        _crypt32.LocalFree(blob_out.pbData)
+        return result
+    return None
+
+def dpapi_decrypt(data):
+    blob_in = DATA_BLOB(len(data), ctypes.cast(data, ctypes.POINTER(ctypes.c_byte)))
+    blob_out = DATA_BLOB()
+    if _crypt32.CryptUnprotectData(ctypes.byref(blob_in), None, None, None, None, _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(blob_out)):
+        result = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        _crypt32.LocalFree(blob_out.pbData)
+        return result
+    return None
+
+AUTH_ENC_FILE = CONFIG_DIR / "auth.enc"
+
+def store_credentials(uname, pword):
+    raw = f"{uname}\n{pword}".encode()
+    enc = dpapi_encrypt(raw)
+    if enc:
+        AUTH_ENC_FILE.write_bytes(enc)
+        return True
+    return False
+
+def load_credentials():
+    if AUTH_ENC_FILE.exists():
+        raw = dpapi_decrypt(AUTH_ENC_FILE.read_bytes())
+        if raw:
+            parts = raw.decode().split("\n", 1)
+            if len(parts) == 2:
+                return parts[0], parts[1]
+    return None, None
+
+def clear_credentials():
+    old_auth = CONFIG_DIR / "auth_global.txt"
+    if old_auth.exists():
+        old_auth.unlink()
+    if AUTH_ENC_FILE.exists():
+        AUTH_ENC_FILE.unlink()
 
 def find_wireguard():
     for p in [r"C:\Program Files\WireGuard\wg.exe", r"C:\Program Files\WireGuard\wg-quick.exe"]:
@@ -215,7 +266,7 @@ class KillSwitch:
             return
         try:
             r = run(["netsh", "advfirewall", "firewall", "show", "rule",
-                     f"name=TorGuardLite_AllowVPN_{name}"], shell=True)
+                     f"name=TorGuardLite_AllowVPN_{name}"])
             if r.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule",
                      f"name=TorGuardLite_AllowVPN_{name}"])
@@ -228,27 +279,27 @@ class KillSwitch:
             return False
         try:
             rules = run(["netsh", "advfirewall", "firewall", "show", "rule",
-                         "name=TorGuardLite_BlockAll"], shell=True)
+                         "name=TorGuardLite_BlockAll"])
             if rules.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule",
                      "name=TorGuardLite_BlockAll"])
             result = run(["netsh", "advfirewall", "firewall", "show", "rule",
-                          "name=TorGuardLite_AllowLAN"], shell=True)
+                          "name=TorGuardLite_AllowLAN"])
             if result.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule",
                      "name=TorGuardLite_AllowLAN"])
             result = run(["netsh", "advfirewall", "firewall", "show", "rule",
-                          "name=TorGuardLite_AllowDHCP"], shell=True)
+                          "name=TorGuardLite_AllowDHCP"])
             if result.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule",
                      "name=TorGuardLite_AllowDHCP"])
             all_vpn = run(["netsh", "advfirewall", "firewall", "show", "rule",
-                           "name=TorGuardLite_AllowVPN_"], shell=True)
+                           "name=TorGuardLite_AllowVPN_"])
             if all_vpn.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule",
                      "name=TorGuardLite_AllowVPN_"])
             temp = run(["netsh", "advfirewall", "firewall", "show", "rule",
-                        "name=TorGuardLite_Temp_"], shell=True)
+                        "name=TorGuardLite_Temp_"])
             if temp.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule",
                      "name=TorGuardLite_Temp_"])
@@ -263,7 +314,7 @@ class KillSwitch:
         if SYSTEM != "Windows":
             return
         try:
-            r = run(["netsh", "advfirewall", "firewall", "show", "rule", "name=TorGuardLite_Temp_"], shell=True)
+            r = run(["netsh", "advfirewall", "firewall", "show", "rule", "name=TorGuardLite_Temp_"])
             if r.returncode == 0:
                 run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=TorGuardLite_Temp_"])
                 log("All temp allow rules removed")
@@ -378,9 +429,8 @@ class WireGuardConnection:
             return r.returncode == 0
         except:
             try:
-                r = run(["powershell", "-Command",
-                         "Get-NetAdapter | Where-Object {($_.InterfaceDescription -like '*WireGuard*' -or $_.Name -like 'WireGuard*') -and $_.Status -eq 'Up'} | Measure-Object | Select-Object -ExpandProperty Count"],
-                        shell=True)
+                r = run(["powershell", "-NoProfile", "-Command",
+                         "Get-NetAdapter | Where-Object {($_.InterfaceDescription -like '*WireGuard*' -or $_.Name -like 'WireGuard*') -and $_.Status -eq 'Up'} | Measure-Object | Select-Object -ExpandProperty Count"])
                 return r.stdout.strip() != "0"
             except:
                 return False
@@ -441,14 +491,19 @@ class OpenVPNConnection:
                 "--redirect-gateway", "def1",
                 "--auth-nocache",
                 "--log", str(self.log_path)]
+        self.auth_file = None
         if self._needs_auth():
-            auth_path = CONFIG_DIR / "auth_global.txt"
-            if not auth_path.exists():
+            uname, pword = load_credentials()
+            if not uname:
                 uname, pword = self._prompt_auth_gui()
                 if not uname:
                     raise Exception("OpenVPN credentials required")
-                auth_path.write_bytes(f"{uname}\n{pword}\n".encode())
-            args.extend(["--auth-user-pass", str(auth_path)])
+                store_credentials(uname, pword)
+            tmp = tempfile.NamedTemporaryFile(mode="w", prefix="tgl_", suffix=".auth", delete=False)
+            tmp.write(f"{uname}\n{pword}\n")
+            tmp.close()
+            self.auth_file = tmp.name
+            args.extend(["--auth-user-pass", tmp.name])
         self.process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -471,6 +526,13 @@ class OpenVPNConnection:
                         f"New-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceAlias '{self.adapter}' -NextHop '0.0.0.0' -RouteMetric 1 -ErrorAction SilentlyContinue"],
                        capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         log("Added default route via VPN adapter")
+        if self.auth_file:
+            try:
+                Path(self.auth_file).unlink()
+                self.auth_file = None
+                log("Cleaned up auth temp file")
+            except:
+                pass
         time.sleep(3)
         if self.process.poll() is not None:
             rc = self.process.returncode
@@ -501,6 +563,12 @@ class OpenVPNConnection:
 
     def disconnect(self):
         log(f"Stopping OpenVPN: {self.name}")
+        if self.auth_file:
+            try:
+                Path(self.auth_file).unlink()
+            except:
+                pass
+            self.auth_file = None
         if self.process:
             self.process.terminate()
             try:
@@ -1562,42 +1630,40 @@ if __name__ == "__main__":
     # Ensure clean killswitch state on crash
     if SYSTEM == "Windows":
         try:
-            r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule",
-                                "name=TorGuardLite_BlockAll"], capture_output=True, text=True, shell=True)
+            r = run(["netsh", "advfirewall", "firewall", "show", "rule",
+                     "name=TorGuardLite_BlockAll"])
             if r.returncode == 0:
                 print("Cleaning up orphaned killswitch rules from previous session...")
-                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule",
-                                "name=TorGuardLite_BlockAll"], capture_output=True, shell=True)
-                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule",
-                                "name=TorGuardLite_AllowLAN"], capture_output=True, shell=True)
-                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule",
-                                "name=TorGuardLite_AllowDHCP"], capture_output=True, shell=True)
-                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule",
-                                "name=TorGuardLite_AllowDNS"], capture_output=True, shell=True)
-                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule",
-                                "name=TorGuardLite_AllowVPN_"], capture_output=True, shell=True)
-                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule",
-                                "name=TorGuardLite_Temp_"], capture_output=True, shell=True)
+                run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                     "name=TorGuardLite_BlockAll"])
+                run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                     "name=TorGuardLite_AllowLAN"])
+                run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                     "name=TorGuardLite_AllowDHCP"])
+                run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                     "name=TorGuardLite_AllowDNS"])
+                run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                     "name=TorGuardLite_AllowVPN_"])
+                run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                     "name=TorGuardLite_Temp_"])
         except:
             pass
         try:
-            out = subprocess.run(["powershell", "-Command",
-                "Get-Service 'WireGuardTunnel*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name"],
-                capture_output=True, text=True, shell=True)
+            out = run(["powershell", "-NoProfile", "-Command",
+                "Get-Service 'WireGuardTunnel*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name"])
             if out.returncode == 0:
                 for svc in out.stdout.strip().splitlines():
                     svc = svc.strip()
                     if svc:
                         print(f"Cleaning up orphaned tunnel: {svc}")
-                        subprocess.run(["sc", "config", svc, "start=disabled"], capture_output=True, shell=True)
-                        subprocess.run(["net", "stop", svc], capture_output=True, shell=True)
+                        run(["sc", "config", svc, "start=disabled"])
+                        run(["net", "stop", svc])
                         tunnel_name = svc.split("$", 1)[-1] if "$" in svc else ""
                         if tunnel_name:
                             wg_dir = find_wireguard()
                             if wg_dir:
-                                subprocess.run([str(Path(wg_dir) / "wireguard.exe"),
-                                                "/uninstalltunnelservice", tunnel_name],
-                                               capture_output=True, shell=True)
+                                run([str(Path(wg_dir) / "wireguard.exe"),
+                                     "/uninstalltunnelservice", tunnel_name])
         except Exception as e:
             print(f"WireGuard tunnel cleanup error: {e}")
     app = TorGuardLite()
