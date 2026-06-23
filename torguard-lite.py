@@ -933,11 +933,11 @@ class TorGuardLite(ctk.CTk):
         # 1. Get-NetAdapterStatistics with exact name
         out = _ps(
             "$s=Get-NetAdapterStatistics -Name '" + safe + "' -ErrorAction SilentlyContinue; "
-            "if ($s) { Write-Output \"C $($s.ReceivedBytes) $($s.SendBytes)\" }"
+            "if ($s) { Write-Output \"C $($s.ReceivedBytes) 0\" }"
         )
         parts = out.split()
-        if len(parts) >= 3 and parts[0] == "C":
-            return int(parts[1]), int(parts[2]), False
+        if len(parts) >= 2 and parts[0] == "C":
+            return int(parts[1]), 0, False
 
         # 2. Get-NetAdapterStatistics by wildcard scan (name or desc)
         out = _ps(
@@ -952,11 +952,11 @@ class TorGuardLite(ctk.CTk):
             "$_.Name -like 'ovpn-dco*' } | Select-Object -First 1; "
             "if ($a) { "
             "$s=Get-NetAdapterStatistics -Name $a.Name -ErrorAction SilentlyContinue; "
-            "if ($s) { Write-Output \"C $($s.ReceivedBytes) $($s.SendBytes)\" } }"
+            "if ($s) { Write-Output \"C $($s.ReceivedBytes) 0\" } }"
         )
         parts = out.split()
-        if len(parts) >= 3 and parts[0] == "C":
-            return int(parts[1]), int(parts[2]), False
+        if len(parts) >= 2 and parts[0] == "C":
+            return int(parts[1]), 0, False
 
         # 3. WMI Win32_PerfRawData_Tcpip_NetworkInterface (cumulative)
         out = _ps(
@@ -969,11 +969,11 @@ class TorGuardLite(ctk.CTk):
             "$_.Name -like '*ovpn-dco*' } "
             "| Select-Object -First 1; "
             "if ($iface) { "
-            "Write-Output \"C $($iface.BytesReceivedPersec) $($iface.BytesSentPersec)\" }"
+            "Write-Output \"C $($iface.BytesReceivedPersec) 0\" }"
         )
         parts = out.split()
-        if len(parts) >= 3 and parts[0] == "C":
-            return int(parts[1]), int(parts[2]), False
+        if len(parts) >= 2 and parts[0] == "C":
+            return int(parts[1]), 0, False
 
         # 4. WMI Win32_PerfFormattedData_Tcpip_NetworkInterface (per-second)
         out = _ps(
@@ -986,11 +986,11 @@ class TorGuardLite(ctk.CTk):
             "$_.Name -like '*ovpn-dco*' } "
             "| Select-Object -First 1; "
             "if ($iface) { "
-            "Write-Output \"R $($iface.BytesReceivedPersec) $($iface.BytesSentPersec)\" }"
+            "Write-Output \"R $($iface.BytesReceivedPersec) 0\" }"
         )
         parts = out.split()
-        if len(parts) >= 3 and parts[0] == "R":
-            return float(parts[1]), float(parts[2]), True
+        if len(parts) >= 2 and parts[0] == "R":
+            return float(parts[1]), 0, True
 
         # 5. Query ALL adapters via Get-NetAdapterStatistics (unfiltered)
         out = _ps(
