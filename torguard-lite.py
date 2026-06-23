@@ -992,12 +992,48 @@ class TorGuardLite(ctk.CTk):
         if len(parts) >= 3 and parts[0] == "R":
             return float(parts[1]), float(parts[2]), True
 
-        # 5. Debug: dump all WMI interface names
+        # 5. Query ALL adapters via Get-NetAdapterStatistics (unfiltered)
         out = _ps(
-            "$all=Get-WmiObject -Class Win32_PerfFormattedData_Tcpip_NetworkInterface; "
-            "if ($all) { $all | ForEach-Object { Write-Output $_.Name } }"
+            "$all=Get-NetAdapterStatistics -ErrorAction SilentlyContinue; "
+            "if ($all) { $all | ForEach-Object { Write-Output \"$($_.Name)|$($_.ReceivedBytes)|$($_.SendBytes)\" } } "
+            "else { Write-Output 'NO_STATS' }"
         )
-        log(f"BW: available WMI interfaces: {out.replace(chr(10), ', ')}")
+        for l in out.strip().splitlines():
+            p = l.split("|")
+            if len(p) >= 3:
+                log(f"BW: NetAdapterStats: {p[0]} rx={p[1]} tx={p[2]}")
+
+        # 6. Dump Get-Counter Network Interface instances
+        out = _ps(
+            "$c=(Get-Counter -ListSet 'Network Interface' -ErrorAction SilentlyContinue); "
+            "if ($c) { $c.PathsWithInstances | Where-Object { $_ -match 'Bytes' } } "
+            "else { Write-Output 'NO_COUNTER' }"
+        )
+        log(f"BW: Get-Counter instances: {out.replace(chr(10), ', ')}")
+
+        # 7. Try Get-Counter directly for this adapter
+        gci = "\\Network Interface(" + safe + ")\\Bytes Received/sec"
+        out = _ps(
+            "$c=Get-Counter -Counter '" + gci + "' -MaxSamples 1 -ErrorAction SilentlyContinue; "
+            "if ($c) { $s=$c.CounterSamples[0]; Write-Output ('R ' + $s.CookedValue + ' 0') }"
+        )
+        parts = out.split()
+        if len(parts) >= 3 and parts[0] == "R":
+            return float(parts[1]), float(parts[2]), True
+
+        # 8. Try Get-Counter for ALL instances and pick the one with rx>0
+        out = _ps(
+            "$c=Get-Counter -Counter \"\\Network Interface(*)\\Bytes Received/sec\" -MaxSamples 1 -ErrorAction SilentlyContinue; "
+            "if ($c) { "
+            "$c.CounterSamples | Where-Object { $_.CookedValue -gt 0 } | "
+            "Sort-Object CookedValue -Descending | Select-Object -First 1 | "
+            "ForEach-Object { Write-Output \"R $($_.CookedValue) 0\" } }"
+        )
+        parts = out.split()
+        if len(parts) >= 3 and parts[0] == "R":
+            return float(parts[1]), float(parts[2]), True
+
+        log("BW: ALL methods exhausted — DCO adapter has no accessible byte counters")
         return None
 
     def _format_bw(self, value):
