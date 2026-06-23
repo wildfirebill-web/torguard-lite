@@ -73,7 +73,8 @@ def add_lan_routes():
         script = '''
         Get-NetAdapter -Physical | Where-Object {$_.Status -eq "Up"} | ForEach-Object {
             $ifIndex = $_.ifIndex
-            Get-NetIPAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 | ForEach-Object {
+            $ifName = $_.Name
+            Get-NetIPAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object {
                 $ip = $_.IPAddress
                 $prefix = $_.PrefixLength
                 $ipBytes = [net.IPAddress]::Parse($ip).GetAddressBytes()
@@ -88,9 +89,7 @@ def add_lan_routes():
                 [array]::Reverse($maskBytes)
                 $mask = [net.IPAddress]::new($maskBytes).ToString()
                 $gateway = (Get-NetRoute -InterfaceIndex $ifIndex -DestinationPrefix '0.0.0.0/0' -AddressFamily IPv4 -ErrorAction SilentlyContinue).NextHop
-                if ($gateway) {
-                    Write-Output "$network $mask $gateway"
-                }
+                Write-Output "$ifName|$ip|$network|$mask|$gateway"
             }
         } | Sort-Object -Unique
         '''
@@ -99,18 +98,24 @@ def add_lan_routes():
                            creationflags=subprocess.CREATE_NO_WINDOW)
         for line in r.stdout.strip().splitlines():
             line = line.strip()
-            parts = line.split()
-            if len(parts) >= 3:
-                try:
-                    network = parts[0]
-                    mask = parts[1]
-                    gateway = parts[2]
-                    subprocess.run(["route", "add", network, "mask", mask, gateway, "metric", "0"],
-                                   capture_output=True, timeout=5)
+            parts = line.split("|")
+            if len(parts) < 4:
+                continue
+            iface, ip, network, mask = parts[0], parts[1], parts[2], parts[3]
+            gateway = parts[4] if len(parts) >= 5 else ""
+            if not gateway or gateway == "":
+                log(f"LAN bypass: {iface} ({ip}) has no default gateway, skipping")
+                continue
+            try:
+                r2 = subprocess.run(["route", "add", network, "mask", mask, gateway, "metric", "0"],
+                                    capture_output=True, text=True, timeout=5)
+                if r2.returncode == 0 or "already exists" in (r2.stderr or "").lower():
                     _lan_routes.append(network)
-                    log(f"Added LAN bypass route: {network} via {gateway}")
-                except:
-                    pass
+                    log(f"LAN bypass route: {network}/{mask} via {gateway} on {iface}")
+                else:
+                    log(f"LAN bypass route ADD FAILED for {network}: {r2.stderr}")
+            except Exception as e:
+                log(f"LAN bypass route exception for {network}: {e}")
     except Exception as e:
         log(f"LAN route detection failed: {e}")
 
