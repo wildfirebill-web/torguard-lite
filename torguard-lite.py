@@ -44,18 +44,34 @@ def run(cmd, **kw):
     kw.setdefault("timeout", 15)
     return subprocess.run(cmd, **kw, creationflags=subprocess.CREATE_NO_WINDOW if SYSTEM == "Windows" else 0)
 
+_CRYPTPROTECT_UI_FORBIDDEN = 0x01
+_crypt32 = ctypes.windll.crypt32
+_kernel32 = ctypes.windll.kernel32
+
 class DATA_BLOB(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
 
-_crypt32 = ctypes.windll.crypt32
-_CRYPTPROTECT_UI_FORBIDDEN = 0x01
+_crypt32.CryptProtectData.argtypes = [
+    ctypes.POINTER(DATA_BLOB), wintypes.LPCWSTR, ctypes.POINTER(DATA_BLOB),
+    ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DATA_BLOB)
+]
+_crypt32.CryptProtectData.restype = wintypes.BOOL
+_crypt32.CryptUnprotectData.argtypes = [
+    ctypes.POINTER(DATA_BLOB), ctypes.POINTER(wintypes.LPCWSTR), ctypes.POINTER(DATA_BLOB),
+    ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DATA_BLOB)
+]
+_crypt32.CryptUnprotectData.restype = wintypes.BOOL
+
+def _free_blob(blob):
+    if blob.pbData:
+        _kernel32.LocalFree(blob.pbData)
 
 def dpapi_encrypt(data):
     blob_in = DATA_BLOB(len(data), ctypes.cast(data, ctypes.POINTER(ctypes.c_byte)))
     blob_out = DATA_BLOB()
     if _crypt32.CryptProtectData(ctypes.byref(blob_in), None, None, None, None, _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(blob_out)):
         result = ctypes.string_at(blob_out.pbData, blob_out.cbData)
-        _crypt32.LocalFree(blob_out.pbData)
+        _free_blob(blob_out)
         return result
     return None
 
@@ -64,7 +80,7 @@ def dpapi_decrypt(data):
     blob_out = DATA_BLOB()
     if _crypt32.CryptUnprotectData(ctypes.byref(blob_in), None, None, None, None, _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(blob_out)):
         result = ctypes.string_at(blob_out.pbData, blob_out.cbData)
-        _crypt32.LocalFree(blob_out.pbData)
+        _free_blob(blob_out)
         return result
     return None
 
