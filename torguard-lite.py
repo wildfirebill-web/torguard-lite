@@ -627,6 +627,8 @@ class TorGuardLite(ctk.CTk):
         self.watchdog = None
         self.rotate_timer = None
         self.temp_rules = []
+        self.watchdog_stop = threading.Event()
+        self.rotate_stop = threading.Event()
         self.connected = False
 
         self.bw_unit_var = ctk.StringVar(value=self.settings.get("bw_unit", "MB"))
@@ -643,6 +645,7 @@ class TorGuardLite(ctk.CTk):
         # Sync auto-start with shortcut state
         if self.settings.get("auto_start", False):
             self._set_auto_start(True)
+        self._refresh_configs()
 
     def _load_settings(self):
         if SETTINGS_FILE.exists():
@@ -1302,19 +1305,22 @@ class TorGuardLite(ctk.CTk):
 
     def _start_watchdog(self):
         self._stop_watchdog()
+        self.watchdog_stop.clear()
 
         def watch():
-            while self.connected and self.vpn:
+            while self.connected and self.vpn and not self.watchdog_stop.is_set():
                 ok = self.vpn.check()
                 if not ok:
                     self.after(0, self._on_vpn_drop)
                     break
-                time.sleep(3)
+                if self.watchdog_stop.wait(3):
+                    break
 
         self.watchdog = threading.Thread(target=watch, daemon=True)
         self.watchdog.start()
 
     def _stop_watchdog(self):
+        self.watchdog_stop.set()
         self.watchdog = None
 
     def _on_vpn_drop(self):
@@ -1325,6 +1331,7 @@ class TorGuardLite(ctk.CTk):
             except:
                 pass
         self._append_log(f"WARNING: VPN connection dropped! (exit code: {exit_code})")
+        self._stop_watchdog()
         self._stop_rotate_timer()
         self.connected = False
         if self.killswitch.active:
@@ -1339,16 +1346,19 @@ class TorGuardLite(ctk.CTk):
 
     def _start_rotate_timer(self):
         self._stop_rotate_timer()
+        self.rotate_stop.clear()
         secs = int(self.settings.get("rotate_interval", 30)) * 60
 
         def tick():
-            time.sleep(secs)
+            if self.rotate_stop.wait(secs):
+                return
             self.after(0, self._rotate_connection)
 
         self.rotate_timer = threading.Thread(target=tick, daemon=True)
         self.rotate_timer.start()
 
     def _stop_rotate_timer(self):
+        self.rotate_stop.set()
         self.rotate_timer = None
 
     @staticmethod
